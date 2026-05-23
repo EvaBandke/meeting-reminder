@@ -32,7 +32,7 @@ final class AppController: ObservableObject {
     func testAirplane() {
         let fake = CalendarEvent(
             id:        UUID().uuidString,
-            title:     "Meeting with Andrew",
+            title:     "Test Meeting",
             startDate: Date().addingTimeInterval(300),
             endDate:   Date().addingTimeInterval(1800)
         )
