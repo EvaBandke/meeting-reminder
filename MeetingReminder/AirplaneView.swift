@@ -4,17 +4,17 @@ struct AirplaneView: View {
     let meetingTitle: String
     let minutesUntil: Int
     let flightDuration: Double
+    let screenWidth: CGFloat
 
     @State private var xOffset: CGFloat
     @State private var opacity: Double = 1.0
 
-    private var screenWidth: CGFloat { NSScreen.main?.frame.width ?? 1_440 }
-
-    init(meetingTitle: String, minutesUntil: Int, flightDuration: Double) {
+    init(meetingTitle: String, minutesUntil: Int, flightDuration: Double, screenWidth: CGFloat = NSScreen.main?.frame.width ?? 1_440) {
         self.meetingTitle   = meetingTitle
         self.minutesUntil   = minutesUntil
         self.flightDuration = flightDuration
-        _xOffset = State(initialValue: -650)   // start fully off-left
+        self.screenWidth    = screenWidth
+        _xOffset = State(initialValue: -800)   // start fully off-left (wide enough for any banner+plane combo)
     }
 
     var body: some View {
@@ -44,7 +44,7 @@ struct AirplaneView: View {
         .opacity(opacity)
         .onAppear {
             withAnimation(.linear(duration: flightDuration)) {
-                xOffset = screenWidth + 50   // end fully off-right
+                xOffset = screenWidth + 900  // end fully off-right (plane + banner width)
             }
             // Fade out in the last half-second
             DispatchQueue.main.asyncAfter(deadline: .now() + flightDuration - 0.6) {
