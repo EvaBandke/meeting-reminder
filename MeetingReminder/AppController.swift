@@ -18,13 +18,29 @@ final class AppController: ObservableObject {
     private let appleService = AppleCalendarService()
     private var poller: CalendarPoller?
     private var overlayWindows: [AirplaneOverlayWindow] = []
+    private var didBecomeActiveObserver: NSObjectProtocol?
 
     init() {
         let saved = UserDefaults.standard.double(forKey: "flightDuration")
         self.flightDuration = saved > 0 ? saved : Self.normalSpeed
 
-        hasAppleAccess = appleService.hasAccess
-        startPollingIfReady()
+        didBecomeActiveObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshCalendarAccess()
+            }
+        }
+
+        refreshCalendarAccess()
+    }
+
+    deinit {
+        if let observer = didBecomeActiveObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     // MARK: Public
@@ -36,14 +52,11 @@ final class AppController: ObservableObject {
         Task {
             let granted = await appleService.requestAccess()
             await MainActor.run {
-                self.hasAppleAccess = granted
-                self.startPollingIfReady()
-                if !granted {
+                self.refreshCalendarAccess()
+                if !granted && !self.hasAppleAccess {
                     // If the prompt still didn't appear (macOS 26 known issue),
                     // open System Settings → Privacy → Calendars as fallback.
-                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
-                        NSWorkspace.shared.open(url)
-                    }
+                    self.openCalendarSettings()
                 }
             }
         }
@@ -61,6 +74,20 @@ final class AppController: ObservableObject {
     }
 
     // MARK: Private
+
+    private func refreshCalendarAccess() {
+        let hasAccess = appleService.hasAccess
+        guard hasAppleAccess != hasAccess || (hasAccess && poller == nil) else { return }
+
+        hasAppleAccess = hasAccess
+        startPollingIfReady()
+    }
+
+    private func openCalendarSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
+            NSWorkspace.shared.open(url)
+        }
+    }
 
     private func startPollingIfReady() {
         poller?.stop()

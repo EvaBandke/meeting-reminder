@@ -45,12 +45,26 @@ final class AppleCalendarService: CalendarSourceProvider {
         let ekEvents = store.events(matching: predicate)
         return ekEvents.map { e in
             CalendarEvent(
-                id:        e.eventIdentifier ?? UUID().uuidString,
+                id:        stableIdentifier(for: e),
                 title:     bannerTitle(for: e),
                 startDate: e.startDate,
                 endDate:   e.endDate
             )
         }
+    }
+
+    /// EventKit can occasionally omit eventIdentifier for fetched events. Avoid
+    /// random UUID fallbacks so de-duping remains stable across poll cycles.
+    private func stableIdentifier(for event: EKEvent) -> String {
+        if let eventIdentifier = event.eventIdentifier {
+            return eventIdentifier
+        }
+
+        return [
+            event.calendarItemIdentifier,
+            event.startDate.timeIntervalSinceReferenceDate.description,
+            event.endDate.timeIntervalSinceReferenceDate.description
+        ].joined(separator: "|")
     }
 
     /// Prefer "Meeting with <names>" when the event has invitees besides you;

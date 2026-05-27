@@ -14,6 +14,7 @@ final class CalendarPoller {
 
     private let service: any CalendarSourceProvider
     private var timer: Timer?
+    private var isPolling = false
     // Persists across poll cycles so we don't fire the same alert twice.
     // Capped at 200 entries to avoid unbounded growth in long-running sessions.
     private var notifiedIDs: Set<String> = []
@@ -41,19 +42,27 @@ final class CalendarPoller {
     // MARK: Private
 
     private func poll() {
+        guard !isPolling else {
+            log.debug("Skipping poll because previous fetch is still in flight")
+            return
+        }
+        isPolling = true
+
         // Explicit @MainActor ensures all reads/writes of actor-isolated state
         // (notifiedIDs, notifiedIDsOrder, onMeetingSoon) stay on the main actor.
         Task { @MainActor in
+            defer { self.isPolling = false }
+
             let now = Date()
             let events: [CalendarEvent]
             do {
-                events = try await service.fetchUpcomingEvents()
+                events = try await self.service.fetchUpcomingEvents()
             } catch {
-                log.error("fetchUpcomingEvents threw: \(error.localizedDescription)")
+                self.log.error("fetchUpcomingEvents threw: \(error.localizedDescription)")
                 return
             }
 
-            log.debug("poll at \(now) — \(events.count) event(s) in next hour")
+            self.log.debug("poll at \(now) — \(events.count) event(s) in next hour")
 
             for event in events {
                 let minutesDouble = event.startDate.timeIntervalSince(now) / 60
@@ -61,21 +70,21 @@ final class CalendarPoller {
                 // whole minute, which matches user intuition ("less than 5 min away").
                 let minutesInt = Int(ceil(minutesDouble))
 
-                log.debug("'\(event.title)' starts in \(String(format: "%.1f", minutesDouble)) min (notified: \(self.notifiedIDs.contains(event.id)))")
+                self.log.debug("'\(event.title)' starts in \(String(format: "%.1f", minutesDouble)) min (notified: \(self.notifiedIDs.contains(event.id)))")
 
                 guard minutesDouble >= Self.alertWindowLow,
                       minutesDouble <= Self.alertWindowHigh,
-                      !notifiedIDs.contains(event.id) else { continue }
+                      !self.notifiedIDs.contains(event.id) else { continue }
 
-                log.info("FIRING alert for '\(event.title)' — \(minutesInt) min away")
-                notifiedIDs.insert(event.id)
-                notifiedIDsOrder.append(event.id)
+                self.log.info("FIRING alert for '\(event.title)' — \(minutesInt) min away")
+                self.notifiedIDs.insert(event.id)
+                self.notifiedIDsOrder.append(event.id)
                 // Evict oldest entries beyond cap to prevent unbounded growth
-                if notifiedIDsOrder.count > 200 {
-                    let evicted = notifiedIDsOrder.removeFirst()
-                    notifiedIDs.remove(evicted)
+                if self.notifiedIDsOrder.count > 200 {
+                    let evicted = self.notifiedIDsOrder.removeFirst()
+                    self.notifiedIDs.remove(evicted)
                 }
-                onMeetingSoon?(event, minutesInt)
+                self.onMeetingSoon?(event, minutesInt)
             }
         }
     }
