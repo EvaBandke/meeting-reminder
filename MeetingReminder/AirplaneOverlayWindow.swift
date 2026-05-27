@@ -5,8 +5,9 @@ import SwiftUI
 final class AirplaneOverlayWindow: NSPanel {
 
     init(meetingTitle: String, minutesUntil: Int, flightDuration: Double, screen: NSScreen? = nil) {
-        let screen = screen ?? NSScreen.main ?? NSScreen.screens[0]
-        let sf = screen.frame
+        // Prefer the explicitly passed screen, then main, then first available.
+        // Fall back to a 1x1 rect if no screen is available (headless/test environments).
+        let sf = (screen ?? NSScreen.main ?? NSScreen.screens.first)?.frame ?? .zero
         let height: CGFloat = 110
         // Position ~65% up the screen
         let yPos = sf.minY + sf.height * 0.65

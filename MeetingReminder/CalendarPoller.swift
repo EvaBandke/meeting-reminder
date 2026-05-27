@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 @MainActor
 final class CalendarPoller {
@@ -17,6 +18,8 @@ final class CalendarPoller {
     // Capped at 200 entries to avoid unbounded growth in long-running sessions.
     private var notifiedIDs: Set<String> = []
     private var notifiedIDsOrder: [String] = []  // insertion-order tracker for eviction
+
+    private let log = Logger(subsystem: "com.connie.MeetingReminder", category: "CalendarPoller")
 
     init(service: any CalendarSourceProvider) {
         self.service = service
@@ -38,25 +41,33 @@ final class CalendarPoller {
     // MARK: Private
 
     private func poll() {
-        Task {
+        // Explicit @MainActor ensures all reads/writes of actor-isolated state
+        // (notifiedIDs, notifiedIDsOrder, onMeetingSoon) stay on the main actor.
+        Task { @MainActor in
             let now = Date()
-            guard let events = try? await service.fetchUpcomingEvents() else {
-                print("[CalendarPoller] ⚠️ fetchUpcomingEvents returned nil or threw")
+            let events: [CalendarEvent]
+            do {
+                events = try await service.fetchUpcomingEvents()
+            } catch {
+                log.error("fetchUpcomingEvents threw: \(error.localizedDescription)")
                 return
             }
 
-            print("[CalendarPoller] 🔍 poll at \(now) — \(events.count) event(s) in next hour")
+            log.debug("poll at \(now) — \(events.count) event(s) in next hour")
 
             for event in events {
                 let minutesDouble = event.startDate.timeIntervalSince(now) / 60
-                let minutesInt    = Int(minutesDouble)
-                print("[CalendarPoller]   • '\(event.title)' starts in \(String(format: "%.1f", minutesDouble)) min (notified: \(notifiedIDs.contains(event.id)))")
+                // Use ceil so "4.1 min away" displays as "5 min" — rounds up to the nearest
+                // whole minute, which matches user intuition ("less than 5 min away").
+                let minutesInt = Int(ceil(minutesDouble))
+
+                log.debug("'\(event.title)' starts in \(String(format: "%.1f", minutesDouble)) min (notified: \(self.notifiedIDs.contains(event.id)))")
 
                 guard minutesDouble >= Self.alertWindowLow,
                       minutesDouble <= Self.alertWindowHigh,
                       !notifiedIDs.contains(event.id) else { continue }
 
-                print("[CalendarPoller] ✈️ FIRING alert for '\(event.title)' — \(minutesInt) min away")
+                log.info("FIRING alert for '\(event.title)' — \(minutesInt) min away")
                 notifiedIDs.insert(event.id)
                 notifiedIDsOrder.append(event.id)
                 // Evict oldest entries beyond cap to prevent unbounded growth

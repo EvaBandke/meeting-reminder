@@ -41,8 +41,9 @@ final class AppController: ObservableObject {
                 if !granted {
                     // If the prompt still didn't appear (macOS 26 known issue),
                     // open System Settings → Privacy → Calendars as fallback.
-                    print("[AppController] ⚠️ Calendar access denied or prompt suppressed — opening System Settings")
-                    NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars")!)
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars") {
+                        NSWorkspace.shared.open(url)
+                    }
                 }
             }
         }

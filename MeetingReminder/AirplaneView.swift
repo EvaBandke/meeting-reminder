@@ -6,15 +6,15 @@ struct AirplaneView: View {
     let flightDuration: Double
     let screenWidth: CGFloat
 
-    @State private var xOffset: CGFloat
+    @State private var xOffset: CGFloat = 0
     @State private var opacity: Double = 1.0
+    @State private var contentWidth: CGFloat = 0  // measured at runtime via GeometryReader
 
     init(meetingTitle: String, minutesUntil: Int, flightDuration: Double, screenWidth: CGFloat = NSScreen.main?.frame.width ?? 1_440) {
         self.meetingTitle   = meetingTitle
         self.minutesUntil   = minutesUntil
         self.flightDuration = flightDuration
         self.screenWidth    = screenWidth
-        _xOffset = State(initialValue: -800)   // start fully off-left (wide enough for any banner+plane combo)
     }
 
     var body: some View {
@@ -39,12 +39,23 @@ struct AirplaneView: View {
                 .zIndex(-1)
         }
         .fixedSize()
+        // Measure the actual rendered content width so start/end offsets are exact
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: ContentWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(ContentWidthKey.self) { contentWidth = $0 }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .offset(x: xOffset)
         .opacity(opacity)
         .onAppear {
+            // Start fully off-left; end fully off-right — both derived from measured content width
+            // so no hard-coded constants that could break with different text/assets.
+            let startOffset = -(contentWidth > 0 ? contentWidth : 800)
+            xOffset = startOffset
             withAnimation(.linear(duration: flightDuration)) {
-                xOffset = screenWidth + 900  // end fully off-right (plane + banner width)
+                xOffset = screenWidth + (contentWidth > 0 ? contentWidth : 900)
             }
             // Fade out in the last half-second
             DispatchQueue.main.asyncAfter(deadline: .now() + flightDuration - 0.6) {
@@ -53,6 +64,14 @@ struct AirplaneView: View {
                 }
             }
         }
+    }
+}
+
+/// PreferenceKey used to bubble up the HStack's measured width from GeometryReader.
+private struct ContentWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
